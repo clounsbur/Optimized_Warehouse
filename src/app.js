@@ -2,32 +2,48 @@ const areaConfig = {
   Superior: {
     zones: 29,
     bays: ['A', 'B', 'C', 'D', 'E', 'F'],
-    description: 'Primary inventory area with 29 active zones.',
+    description: 'Primary red inventory area on the west side of the floor plan.',
+    color: 'red',
   },
-  West: {
-    zones: 12,
+  Michigan: {
+    zones: 6,
+    bays: ['A', 'B', 'C', 'D', 'E', 'F'],
+    description: 'Green center and south inventory area.',
+    color: 'green',
+  },
+  Huron: {
+    zones: 18,
     bays: ['A', 'B', 'C', 'D'],
-    description: 'Overflow and staged stock.',
+    description: 'Blue inventory area near the east-center lanes.',
+    color: 'blue',
   },
-  East: {
+  Erie: {
     zones: 10,
     bays: ['A', 'B', 'C', 'D'],
-    description: 'Fast-pick and smaller SKU storage.',
-  },
-  Receiving: {
-    zones: 6,
-    bays: ['A', 'B', 'C'],
-    description: 'Inbound product awaiting put-away.',
+    description: 'Purple inventory area on the far east side.',
+    color: 'purple',
   },
 };
+
+const floorPlanBlocks = [
+  { area: 'Superior', className: 'superior-left' },
+  { area: 'Superior', className: 'superior-top' },
+  { area: 'Superior', className: 'superior-mid' },
+  { area: 'Superior', className: 'superior-right' },
+  { area: 'Michigan', className: 'michigan-center' },
+  { area: 'Michigan', className: 'michigan-bottom' },
+  { area: 'Huron', className: 'huron-left' },
+  { area: 'Huron', className: 'huron-right' },
+  { area: 'Erie', className: 'erie-right' },
+];
 
 const storageKey = 'optimized-warehouse-inventory';
 const defaultLocationId = 'Superior-1-A';
 const locations = buildLocations();
+const validLocationIds = new Set(locations.map((location) => location.id));
 
 let inventory = loadInventory();
 let selectedArea = 'Superior';
-let showOnlyEmpty = false;
 let searchTerm = '';
 
 const root = document.querySelector('#root');
@@ -50,13 +66,37 @@ function loadInventory() {
   const saved = localStorage.getItem(storageKey);
   if (saved) {
     try {
-      return JSON.parse(saved);
+      return JSON.parse(saved).map(normalizeInventoryItem);
     } catch {
       return getDemoInventory();
     }
   }
 
   return getDemoInventory();
+}
+
+function normalizeInventoryItem(item) {
+  return {
+    ...item,
+    locationId: normalizeLocationId(item.locationId),
+  };
+}
+
+function normalizeLocationId(locationId) {
+  if (validLocationIds.has(locationId)) {
+    return locationId;
+  }
+
+  const legacyAreaMap = {
+    West: 'Michigan',
+    East: 'Erie',
+    Receiving: 'Huron',
+  };
+  const [area, zone = '1', bay = 'A'] = String(locationId).split('-');
+  const mappedArea = legacyAreaMap[area] || area;
+  const mappedLocation = `${mappedArea}-${zone}-${bay}`;
+
+  return validLocationIds.has(mappedLocation) ? mappedLocation : defaultLocationId;
 }
 
 function getDemoInventory() {
@@ -74,10 +114,10 @@ function getDemoInventory() {
     },
     {
       id: crypto.randomUUID(),
-      sku: 'REC-2200',
-      productName: 'Receiving pallet starter',
+      sku: 'HUR-2200',
+      productName: 'Huron pallet starter',
       quantity: 12,
-      locationId: 'Receiving-2-B',
+      locationId: 'Huron-2-B',
       dateAdded: new Date().toISOString().slice(0, 10),
       lotNumber: 'INBOUND-7',
       supplier: 'Inbound Partner',
@@ -94,21 +134,30 @@ function formatLocation(locationId) {
   return locationId.replaceAll('-', ' ');
 }
 
+function getAreaStats(area) {
+  const areaLocations = locations.filter((location) => location.area === area);
+  const occupied = new Set(
+    inventory
+      .filter((item) => item.locationId.startsWith(`${area}-`))
+      .map((item) => item.locationId),
+  ).size;
+
+  return {
+    total: areaLocations.length,
+    occupied,
+    empty: areaLocations.length - occupied,
+  };
+}
+
 function render() {
-  const occupiedLocationIds = new Set(inventory.map((item) => item.locationId));
+  const occupiedLocationIds = new Set(inventory.map((item) => item.locationId).filter((locationId) => validLocationIds.has(locationId)));
   const locationCounts = {
-    total: locations.length,
+    skus: inventory.length,
     occupied: occupiedLocationIds.size,
     empty: locations.length - occupiedLocationIds.size,
   };
   const selectedAreaConfig = areaConfig[selectedArea];
-  const visibleLocations = locations.filter((location) => {
-    if (location.area !== selectedArea) {
-      return false;
-    }
-
-    return !(showOnlyEmpty && occupiedLocationIds.has(location.id));
-  });
+  const selectedAreaStats = getAreaStats(selectedArea);
   const filteredInventory = inventory.filter((item) => {
     const haystack = [item.sku, item.productName, item.locationId, item.lotNumber, item.supplier, item.barcode]
       .join(' ')
@@ -118,51 +167,58 @@ function render() {
 
   root.innerHTML = `
     <main class="app-shell">
-      <section class="hero">
+      <section class="hero panel">
         <div>
           <img class="logo" src="/tbflogo.png" alt="Company logo" />
-          <p class="eyebrow">Warehouse floor map</p>
+          <p class="eyebrow">Warehouse floor plan</p>
           <h1>Optimized Warehouse</h1>
-          <p class="hero-copy">Map zones and bays as cubes, then add, move, remove, adjust, and search SKUs as inventory changes.</p>
+          <p class="hero-copy">A cleaner area map for finding inventory sections first, then managing SKUs by area, zone, and bay.</p>
         </div>
-        <div class="stats-grid" aria-label="Warehouse capacity summary">
-          ${statCard('Total cubes', locationCounts.total)}
-          ${statCard('Occupied', locationCounts.occupied)}
-          ${statCard('Empty', locationCounts.empty)}
+        <div class="stats-grid" aria-label="Warehouse summary">
+          ${statCard('SKUs', locationCounts.skus)}
+          ${statCard('Occupied locations', locationCounts.occupied)}
+          ${statCard('Open locations', locationCounts.empty)}
         </div>
       </section>
 
-      <section class="panel layout-panel">
+      <section class="panel floor-plan-panel">
         <div class="section-heading">
           <div>
-            <p class="eyebrow">Floor areas</p>
-            <h2>${selectedArea} cube map</h2>
+            <p class="eyebrow">Visual key</p>
+            <h2>Floor plan areas</h2>
+            <p>Numbers are intentionally hidden here. Use the area names first, then choose zone and bay in the SKU forms.</p>
+          </div>
+          <label class="compact-field">
+            Selected area
+            <select id="area-select">
+              ${Object.keys(areaConfig)
+                .map((area) => `<option value="${area}" ${area === selectedArea ? 'selected' : ''}>${area}</option>`)
+                .join('')}
+            </select>
+          </label>
+        </div>
+
+        <div class="floor-plan" aria-label="Warehouse floor plan key">
+          ${floorPlanBlocks.map((block) => floorPlanBlock(block)).join('')}
+        </div>
+
+        <div class="area-summary ${selectedAreaConfig.color}">
+          <div>
+            <p class="eyebrow">Selected</p>
+            <h3>${selectedArea}</h3>
             <p>${selectedAreaConfig.description}</p>
           </div>
-          <div class="toolbar">
-            <label>
-              Area
-              <select id="area-select">
-                ${Object.keys(areaConfig)
-                  .map((area) => `<option value="${area}" ${area === selectedArea ? 'selected' : ''}>${area}</option>`)
-                  .join('')}
-              </select>
-            </label>
-            <label class="checkbox-label">
-              <input id="empty-toggle" type="checkbox" ${showOnlyEmpty ? 'checked' : ''} /> Empty only
-            </label>
+          <div class="area-metrics">
+            ${metric('Zones', selectedAreaConfig.zones)}
+            ${metric('Bays', selectedAreaConfig.bays.length)}
+            ${metric('Open', selectedAreaStats.empty)}
           </div>
-        </div>
-        <div class="cube-grid" style="grid-template-columns: repeat(${selectedAreaConfig.bays.length}, minmax(90px, 1fr))">
-          ${visibleLocations
-            .map((location) => cubeCard(location, inventory.find((item) => item.locationId === location.id)))
-            .join('')}
         </div>
       </section>
 
       <section class="workspace-grid">
         <form class="panel action-card" id="add-form">
-          ${cardTitle('➕', 'Entry', 'Add SKU into a cube')}
+          ${cardTitle('Entry', 'Add SKU')}
           <div class="form-grid">
             ${textInput('SKU number', 'sku', '', true)}
             ${textInput('Product name', 'productName', '', true)}
@@ -170,13 +226,13 @@ function render() {
             ${textInput('Lot number', 'lotNumber', '')}
             ${textInput('Supplier', 'supplier', '')}
             <label>Quantity<input name="quantity" type="number" min="1" value="1" required /></label>
-            ${locationSelect('Location', 'locationId', defaultLocationId)}
+            ${locationSelect('Location', 'locationId', firstLocationForArea(selectedArea))}
           </div>
           <button type="submit">Add to inventory</button>
         </form>
 
         <div class="panel action-card">
-          ${cardTitle('🔎', 'Find', 'Search SKUs and locations')}
+          ${cardTitle('Search', 'Find inventory')}
           <label>
             Search by SKU, product, barcode, supplier, lot, or location
             <input id="search-input" value="${escapeHtml(searchTerm)}" placeholder="Try Superior 1 A or SUP-1001" />
@@ -187,14 +243,14 @@ function render() {
         </div>
 
         <form class="panel action-card" id="move-form">
-          ${cardTitle('↔️', 'Movement', 'Move SKU to another cube')}
+          ${cardTitle('Move', 'Move SKU')}
           ${inventorySelect('SKU to move', 'itemId', '')}
-          ${locationSelect('New location', 'targetLocationId', defaultLocationId)}
+          ${locationSelect('New location', 'targetLocationId', firstLocationForArea(selectedArea))}
           <button type="submit">Move SKU</button>
         </form>
 
         <form class="panel action-card" id="adjust-form">
-          ${cardTitle('🎚️', 'Counts', 'Adjust quantity')}
+          ${cardTitle('Count', 'Adjust quantity')}
           ${inventorySelect('SKU to adjust', 'itemId', '')}
           <label>New quantity<input name="quantity" type="number" min="0" value="1" /></label>
           <button type="submit">Update quantity</button>
@@ -210,17 +266,28 @@ function statCard(label, value) {
   return `<div class="stat-card"><span>${label}</span><strong>${value}</strong></div>`;
 }
 
-function cardTitle(icon, eyebrow, title) {
+function metric(label, value) {
+  return `<span><strong>${value}</strong>${label}</span>`;
+}
+
+function cardTitle(eyebrow, title) {
+  return `<div class="card-title"><p class="eyebrow">${eyebrow}</p><h2>${title}</h2></div>`;
+}
+
+function floorPlanBlock(block) {
   return `
-    <div class="card-title">
-      <span class="icon-pill">${icon}</span>
-      <div><p class="eyebrow">${eyebrow}</p><h2>${title}</h2></div>
-    </div>
+    <button class="floor-block ${block.className} ${areaConfig[block.area].color} ${block.area === selectedArea ? 'selected' : ''}" type="button" data-area="${block.area}" aria-label="Select ${block.area} area">
+      <span>${block.area}</span>
+    </button>
   `;
 }
 
 function textInput(label, name, value = '', required = false) {
   return `<label>${label}<input name="${name}" value="${escapeHtml(value)}" ${required ? 'required' : ''} /></label>`;
+}
+
+function firstLocationForArea(area) {
+  return locations.find((location) => location.area === area)?.id || defaultLocationId;
 }
 
 function locationSelect(label, name, value) {
@@ -249,20 +316,6 @@ function inventorySelect(label, name, value) {
   `;
 }
 
-function cubeCard(location, item) {
-  return `
-    <article class="cube-card ${item ? 'occupied' : 'empty'}">
-      <span class="location-code">${formatLocation(location.id)}</span>
-      <span class="cube-status">${item ? 'Occupied' : 'Empty'}</span>
-      ${
-        item
-          ? `<strong>${escapeHtml(item.sku)}</strong><small>${item.quantity} units</small>`
-          : '<small>Ready for SKU entry</small>'
-      }
-    </article>
-  `;
-}
-
 function inventoryRow(item) {
   return `
     <article class="inventory-row">
@@ -272,7 +325,7 @@ function inventoryRow(item) {
         <small>${formatLocation(item.locationId)} • ${item.quantity} units • Added ${item.dateAdded}</small>
         <small>Lot ${escapeHtml(item.lotNumber || '—')} • Supplier ${escapeHtml(item.supplier || '—')} • Barcode ${escapeHtml(item.barcode || '—')}</small>
       </div>
-      <button class="danger-button" type="button" data-remove-id="${item.id}">➖ Remove</button>
+      <button class="danger-button" type="button" data-remove-id="${item.id}">Remove</button>
     </article>
   `;
 }
@@ -282,10 +335,14 @@ function bindEvents() {
     selectedArea = event.target.value;
     render();
   });
-  document.querySelector('#empty-toggle').addEventListener('change', (event) => {
-    showOnlyEmpty = event.target.checked;
-    render();
+
+  document.querySelectorAll('[data-area]').forEach((button) => {
+    button.addEventListener('click', () => {
+      selectedArea = button.dataset.area;
+      render();
+    });
   });
+
   document.querySelector('#search-input').addEventListener('input', (event) => {
     searchTerm = event.target.value;
     render();

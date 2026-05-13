@@ -4,13 +4,14 @@ A lightweight web-based warehouse management prototype for mapping inventory are
 
 ## What it includes
 
-- A floor map organized by area, zone, and bay.
+- A simplified visual floor plan key for Superior, Michigan, Huron, and Erie.
+- Area-based location modeling that still supports zone and bay selections behind the scenes.
 - Superior area support for 29 zones.
-- Cube status cards for empty and occupied locations.
 - SKU entry with SKU number, product name, quantity, location, date added, lot number, supplier, and barcode.
 - Inventory movement from one cube/location to another.
 - Inventory removal and quantity adjustment.
 - Search by SKU, product name, barcode, supplier, lot number, or location.
+- Less visual clutter by showing area names on the floor plan instead of all zone numbers.
 - Local browser persistence through `localStorage`.
 
 ## Run locally
